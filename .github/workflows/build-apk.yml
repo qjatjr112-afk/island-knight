@@ -1,1 +1,194 @@
+name: Build Island Knight APK
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Create Android project
+        run: |
+          mkdir -p app/src/main/java/com/islandknight/game
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = 'IslandKnight'
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.islandknight.game'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.islandknight.game'
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 1
+                  versionName '0.1'
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:label="Island Knight"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen">
+                  <activity
+                      android:name=".MainActivity"
+                      android:screenOrientation="landscape"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/islandknight/game/MainActivity.java <<'EOF'
+          package com.islandknight.game;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+
+          public class MainActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  setContentView(new GameView(this));
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/islandknight/game/GameView.java <<'EOF'
+          package com.islandknight.game;
+
+          import android.content.Context;
+          import android.graphics.*;
+          import android.view.*;
+
+          public class GameView extends View {
+              Paint p = new Paint(1);
+              float x = 500, y = 350, tx = 500, ty = 350;
+              RectF attack = new RectF();
+
+              public GameView(Context c) {
+                  super(c);
+              }
+
+              protected void onDraw(Canvas c) {
+                  p.setColor(Color.rgb(62,105,65));
+                  c.drawRect(0,0,getWidth(),getHeight(),p);
+
+                  p.setColor(Color.rgb(190,170,115));
+                  c.drawRect(70,100,getWidth()-70,getHeight()-70,p);
+
+                  p.setColor(Color.rgb(35,45,60));
+                  c.drawCircle(x,y,26,p);
+
+                  float dx=tx-x, dy=ty-y;
+                  float d=(float)Math.sqrt(dx*dx+dy*dy);
+                  if(d>3){
+                      x += dx/d*5;
+                      y += dy/d*5;
+                  }
+
+                  p.setColor(Color.WHITE);
+                  p.setTextSize(24);
+                  c.drawText("Island Knight v0.1",25,40,p);
+                  p.setTextSize(19);
+                  c.drawText("Knight  Lv.1",25,68,p);
+                  c.drawText("STR 19   DEX 18   CON 19",25,94,p);
+                  c.drawText("Sword / Armor / Shield",25,120,p);
+
+                  attack.set(
+                      getWidth()-210,
+                      getHeight()-120,
+                      getWidth()-30,
+                      getHeight()-30
+                  );
+
+                  p.setColor(Color.rgb(130,40,35));
+                  c.drawRoundRect(attack,20,20,p);
+                  p.setColor(Color.WHITE);
+                  p.setTextSize(28);
+                  c.drawText(
+                      "ATTACK",
+                      attack.left+30,
+                      attack.centerY()+10,
+                      p
+                  );
+
+                  invalidate();
+              }
+
+              public boolean onTouchEvent(MotionEvent e) {
+                  if(e.getAction()==MotionEvent.ACTION_DOWN) {
+                      if(!attack.contains(e.getX(),e.getY())) {
+                          tx=e.getX();
+                          ty=e.getY();
+                      }
+                      return true;
+                  }
+                  return true;
+              }
+          }
+          EOF
+
+      - name: Build APK
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: IslandKnight-v0.1
+          path: app/build/outputs/apk/debug/app-debug.apk
